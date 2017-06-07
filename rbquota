@@ -68,8 +68,6 @@ for line in quota:
         tempfs = (int(matches.group('blocks')), int(matches.group('soft')), int(matches.group('hard')))
         if matches.group('filesystem') == "/storage":
             home = tempfs
-        elif matches.group('filesystem') == "/fast-storage":
-            webtree = tempfs
         else:
             temp = tempfs
 
