@@ -15,7 +15,7 @@ def timeout_command(command, timeout):
     while process.poll() is None:
         time.sleep(0.1)
         now = datetime.datetime.now()
-        if (now - start).seconds> timeout:
+        if (now - start).seconds > timeout:
             os.kill(process.pid, signal.SIGKILL)
             os.waitpid(-1, os.WNOHANG)
             return "error this string will never be seen"
@@ -26,27 +26,30 @@ from os import popen
 import re, sys
 
 def colour(percent):
-	if percent > 80:
-		return 31 # red
-	elif percent > 60:
-		return 33 # yellow
-	else:
-		return 32 # green
+    if percent > 80:
+        return 31 # red
+    elif percent > 60:
+        return 33 # yellow
+    else:
+        return 32 # green
 
 if len(sys.argv) == 2:
-	username = sys.argv[1]
+    username = sys.argv[1]
 else:
-	username = ""
+    username = ""
 
 # run quota, read in the output. Solaris is shit.
 if sys.platform.startswith("sunos"):
-	quota = popen("/usr/sbin/quota -v %s" % username, "r").read()
+    quota = popen("/usr/sbin/quota -v %s" % username, "r").read()
 else:
     cmd = "/usr/bin/quota -w -Q %s" % username
     quota = timeout_command(cmd, 0.5)
 
+# quota output should be a string
+quota = quota.decode("utf-8")
+
 if not quota.startswith("Disk quotas for"):
-	sys.exit(1)
+    sys.exit(1)
 
 # deal with multi-line quota reports, put them back onto single lines.
 quota = re.sub("(?P<all>[\t ]*([0-9a-zA-Z\.]*:)?(/[/a-z0-9]*))\n", "\g<all>", quota)
@@ -62,18 +65,18 @@ home = webtree = temp = None
 for line in quota:
     matches = pattern.search(line)
     if matches:
-		tempfs = (int(matches.group('blocks')), int(matches.group('soft')), int(matches.group('hard')))
-		if matches.group('filesystem') == "/storage":
-			home = tempfs
-		elif matches.group('filesystem') == "/fast-storage":
-			webtree = tempfs
-		else:
-			temp = tempfs
+        tempfs = (int(matches.group('blocks')), int(matches.group('soft')), int(matches.group('hard')))
+        if matches.group('filesystem') == "/storage":
+            home = tempfs
+        elif matches.group('filesystem') == "/fast-storage":
+            webtree = tempfs
+        else:
+            temp = tempfs
 
 if home == None:
-	home = temp
+    home = temp
 else:
-	webtree = temp
+    webtree = temp
 
 # if you change the bar width, you'll also need to change the value in the
 # format string below.
@@ -83,46 +86,34 @@ format = "%8s: |\033[1;%dm%-35s\033[0m|\033[0;36m%3d\033[0m%%, \033[0;36m%4d\033
 
 # print the header
 if username == "":
-	account_owner = "your"
+    account_owner = "your"
 else:
-	account_owner = "%s's" % username
+    account_owner = "%s's" % username
 
-print "Storage space report for %s \033[1;31mRedBrick\033[0m account:" % account_owner
+print(("Storage space report for %s \033[1;31mRedBrick\033[0m account:" % account_owner))
 
 # here's the nasty bit. should really be using a list of filesystems.
 
 if webtree:
-	bar_width = 30.0
-	format = "%14s: |\033[1;%dm%-30s\033[0m|\033[0;36m%3d\033[0m%%, \033[0;36m%4d\033[0mMB used, \033[0;36m%4d\033[0mMB free\n"
+    bar_width = 30.0
+    format = "%14s: |\033[1;%dm%-30s\033[0m|\033[0;36m%3d\033[0m%%, \033[0;36m%4d\033[0mMB used, \033[0;36m%4d\033[0mMB free\n"
 
 if home:
-	home_percent = (home[0] * 1.0 / home[1] * 1.0) * 100
-	home_bar_width = home_percent * (bar_width / 100)
+    home_percent = (home[0] * 1.0 / home[1] * 1.0) * 100
+    home_bar_width = home_percent * (bar_width / 100)
 
-	if home_bar_width > bar_width:
-		home_bar_width = bar_width
+    if home_bar_width > bar_width:
+        home_bar_width = bar_width
 
-	# print the home quota
-	sys.stdout.write(format %
-		("  storage",
-		colour(home_percent),
-		"=" * int(home_bar_width),
-		home_percent,
-		home[0] / 1024,
-		(home[1] - home[0]) / 1024))
+    # print the home quota
+    sys.stdout.write(format % ("  storage", colour(home_percent), "=" * int(home_bar_width), home_percent, home[0] / 1024, (home[1] - home[0]) / 1024))
 
 if webtree:
-	webtree_percent = (webtree[0] * 1.0 / webtree[1] * 1.0) * 100
-	webtree_bar_width = webtree_percent * (bar_width / 100)
+    webtree_percent = (webtree[0] * 1.0 / webtree[1] * 1.0) * 100
+    webtree_bar_width = webtree_percent * (bar_width / 100)
 
-	if webtree_bar_width > bar_width:
-		webtree_bar_width = bar_width
+    if webtree_bar_width > bar_width:
+        webtree_bar_width = bar_width
 
-	# print the webtree quota
-	sys.stdout.write(format %
-		("  fast-storage",
-		colour(webtree_percent),
-		"=" * int(webtree_bar_width),
-		webtree_percent,
-		webtree[0] / 1024,
-		(webtree[1] - webtree[0]) / 1024))
+    # print the webtree quota
+    sys.stdout.write(format % ("  fast-storage", colour(webtree_percent), "=" * int(webtree_bar_width), webtree_percent, webtree[0] / 1024, (webtree[1] - webtree[0]) / 1024))
