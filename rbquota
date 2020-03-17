@@ -1,121 +1,94 @@
 #!/usr/bin/env python
-#
-# Desc: Pretty display of RedBrick quota usage
-# Auth: Charlie Von Metzradt <phaxx@redbrick.dcu.ie>
-# Date: Sat Oct  8 16:11:42 IST 2005
 # vim: ft=python
-#
+"""
+Description: Pretty display of RedBrick quota usage
+Authors:     Charlie Von Metzradt <phaxx@redbrick.dcu.ie>
+             Cian Butler <butlerx@redbrick.dcu.ie>
+             Lucas Savva <m1cr0man@redbrick.dcu.ie>
+Date:        Sat Oct  8 16:11:42 IST 2005
+"""
 
-from os import popen
-import re
+from __future__ import print_function
+
+import math
+import socket
 import sys
-import subprocess
-import os
-import time
-import signal
-
-def timeout_command(command, timeout):
-    """call shell-command and either return its output or kill it
-    if it doesn't normally exit within timeout seconds and return None"""
-    import subprocess, datetime, os, time, signal
-    start = time.time()
-    process = subprocess.Popen([command], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    while process.poll() is None:
-        time.sleep(0.1)
-        now = time.time()
-        if (now - start) > timeout:
-            os.kill(process.pid, signal.SIGKILL)
-            os.waitpid(-1, os.WNOHANG)
-            return "error this string will never be seen"
-    return process.stdout.read()
-
-def colour(percent):
-    if percent > 80:
-        return 31 # red
-    elif percent > 60:
-        return 33 # yellow
-    else:
-        return 32 # green
-
-if len(sys.argv) == 2:
-    username = sys.argv[1]
-else:
-    username = ""
-
-# run quota, read in the output. Solaris is shit.
-if sys.platform.startswith("sunos"):
-    quota = popen("/usr/sbin/quota -v %s" % username, "r").read()
-else:
-    cmd = "/usr/bin/quota -w -Q %s" % username
-    quota = timeout_command(cmd, 0.5)
-
-# quota output should be a string
-quota = quota.decode("utf-8")
-
-if not quota.startswith("Disk quotas for"):
-    sys.exit(1)
-
-# deal with multi-line quota reports, put them back onto single lines.
-quota = re.sub("(?P<all>[\t ]*([0-9a-zA-Z\.]*:)?(/[/a-z0-9]*))\n", "\g<all>", quota)
-
-# split the output into a list.
-quota = quota.split("\n")
-
-# prepare the regex used to extract the quota values
-pattern = re.compile("[\t ]*([0-9a-zA-Z\.]*:)?(?P<filesystem>/[/a-z-0-9]*)[\t ]*(?P<blocks>[0-9]+)\*?[\t ]*(?P<soft>[0-9]+)[\t ]*(?P<hard>[0-9]+)[\t ]*(?P<grace>[0-9]+)?")
-
-home = webtree = temp = None
-
-for line in quota:
-    matches = pattern.search(line)
-    if matches:
-        tempfs = (int(matches.group('blocks')), int(matches.group('soft')), int(matches.group('hard')))
-        if matches.group('filesystem') == "/storage":
-            home = tempfs
-        else:
-            temp = tempfs
-
-if home == None:
-    home = temp
-else:
-    webtree = temp
+from os import getuid
 
 # if you change the bar width, you'll also need to change the value in the
-# format string below.
-bar_width = 35.0
+# format string in the print statement.
+BAR_WIDTH = 35.0
 
-format = "%8s: |\033[1;%dm%-35s\033[0m|\033[0;36m%3d\033[0m%%, \033[0;36m%4d\033[0mMB used, \033[0;36m%4d\033[0mMB free\n"
 
-# print the header
-if username == "":
-    account_owner = "your"
-else:
-    account_owner = "%s's" % username
+def colour(percent):
+    """return colour code for given percentage"""
+    if percent > 80:
+        return 31  # red
+    if percent > 60:
+        return 33  # yellow
+    return 32  # green
 
-print(("Storage space report for %s \033[1;31mRedBrick\033[0m account:" % account_owner))
 
-# here's the nasty bit. should really be using a list of filesystems.
+def get_user():
+    """get username to look quota for"""
+    if len(sys.argv) == 2:
+        return sys.argv[1]
+    import pwd
 
-if webtree:
-    bar_width = 30.0
-    format = "%14s: |\033[1;%dm%-30s\033[0m|\033[0;36m%3d\033[0m%%, \033[0;36m%4d\033[0mMB used, \033[0;36m%4d\033[0mMB free\n"
+    return pwd.getpwuid(getuid())[0]
 
-if home:
-    home_percent = (home[0] * 1.0 / home[1] * 1.0) * 100
-    home_bar_width = home_percent * (bar_width / 100)
 
-    if home_bar_width > bar_width:
-        home_bar_width = bar_width
+def convert_size(size_bytes):
+    """convert Btye Value to Pretty Value"""
+    if size_bytes == 0:
+        return "0B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    size_index = int(math.floor(math.log(size_bytes, 1024)))
+    return "%s%s" % (
+        round(size_bytes / math.pow(1024, size_index), 2),
+        size_name[size_index],
+    )
 
-    # print the home quota
-    sys.stdout.write(format % ("  storage", colour(home_percent), "=" * int(home_bar_width), home_percent, home[0] / 1024, (home[1] - home[0]) / 1024))
 
-if webtree:
-    webtree_percent = (webtree[0] * 1.0 / webtree[1] * 1.0) * 100
-    webtree_bar_width = webtree_percent * (bar_width / 100)
+def get_quota_from_zfs(username):
+    storage_socket = socket.create_connection(("storage.internal", 1995), 1)
+    storage_socket.send((username + "\n").encode())
+    return storage_socket.recv(1024)
 
-    if webtree_bar_width > bar_width:
-        webtree_bar_width = bar_width
 
-    # print the webtree quota
-    sys.stdout.write(format % ("  fast-storage", colour(webtree_percent), "=" * int(webtree_bar_width), webtree_percent, webtree[0] / 1024, (webtree[1] - webtree[0]) / 1024))
+def print_usage(username):
+    """output users current usage of storage"""
+    raw_quota = get_quota_from_zfs(username)
+
+    if not raw_quota or raw_quota[0] == "-":
+        sys.exit(1)
+
+    home = [int(x) for x in raw_quota.decode().strip().split()]
+    home.reverse()
+
+    # here's the nasty bit. should really be using a list of filesystems.
+    home_percent = 0.0
+
+    if home[1] > 0:
+        home_percent = (home[0] * 1.0 / home[1] * 1.0) * 100
+    home_bar_width = home_percent * (BAR_WIDTH / 100)
+
+    if home_bar_width > BAR_WIDTH:
+        home_bar_width = BAR_WIDTH
+
+    print(
+        "Storage space report for %s \033[1;31mRedBrick\033[0m account:\n" % username,
+        "%8s: |\033[1;%dm%-35s\033[0m|\033[0;36m%3d\033[0m%%, \033[0;36m%s\033[0m used, \033[0;36m%s\033[0m free"
+        % (
+            "  storage",
+            colour(home_percent),
+            "=" * int(home_bar_width),
+            home_percent,
+            convert_size(home[0]),
+            convert_size(home[1] - home[0]),
+        ),
+    )
+
+
+if __name__ == "__main__":
+    print_usage(get_user())
